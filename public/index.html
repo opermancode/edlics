@@ -139,7 +139,6 @@ body {
   border: 1px solid var(--border); font-family: inherit; font-size: 11px;
 }
 .welcome.hidden { display: none; }
-
 .overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0,0,0,0.65); display: flex; align-items: center;
@@ -196,12 +195,21 @@ body {
 .toast.show { opacity: 1; }
 .editor-area .cm-editor { height: 100%; }
 .editor-area .cm-editor .cm-scroller { overflow: auto; }
+.cm-editor { background: var(--bg); color: var(--text); }
+.cm-editor .cm-gutters { background: var(--sidebar); color: var(--text-dimmer); border-right: 1px solid var(--border); }
+.cm-editor .cm-activeLine { background: var(--hover); }
+.cm-editor .cm-activeLineGutter { background: var(--active); }
+.cm-editor .cm-cursor { border-left-color: var(--text); }
+.cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground { background: var(--active); }
+.cm-editor .cm-matchingBracket { background: rgba(137,180,250,0.2); outline: 1px solid var(--accent); }
+.cm-editor .cm-foldPlaceholder { background: var(--hover); color: var(--text-dim); }
 </style>
 </head>
 <body>
 <div class="toolbar">
   <span class="logo"><span class="logo-mark">Ed</span>Edlics</span>
   <span id="serverBadge" style="font-size:11px;color:var(--text-dimmer);margin-right:4px;white-space:nowrap;"></span>
+  <span id="themeToggle" title="Toggle theme" style="cursor:pointer;font-size:14px;color:var(--text-dimmer);padding:2px 6px;border-radius:4px;user-select:none;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text-dimmer)'">🌙</span>
   <div class="path-bar" id="pathBar"></div>
   <input class="search-box" id="searchBox" placeholder="Search files..." />
   <button id="btnNewFile" title="New file">+ File</button>
@@ -240,7 +248,7 @@ body {
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import { EditorView, EditorState, basicSetup, keymap, oneDark, javascript, python, html, css, json, markdown, xml, yaml } from '/editor.mjs';
+import { EditorView, EditorState, basicSetup, keymap, javascript, python, html, css, json, markdown, xml, yaml } from '/editor.mjs';
 
 const BASE = '';
 const HOME = '/home/ec2-user';
@@ -496,7 +504,7 @@ function loadEditor(tab) {
     const startState = EditorState.create({
       doc: tab.content || '',
       extensions: [
-        basicSetup, oneDark, updateListener, cm6Keymap, cm6Theme,
+        basicSetup, updateListener, cm6Keymap, cm6Theme,
         ...langExt,
       ],
     });
@@ -581,6 +589,32 @@ function handleSudoError(filePath, action) {
     }
   }).catch(() => showSudoDialog(() => action()));
 }
+
+// Theme toggle
+const THEME_LIGHT = {
+  '--bg': '#eff1f5', '--sidebar': '#e6e9ef', '--border': '#ccd0da',
+  '--text': '#4c4f69', '--text-dim': '#7c7f93', '--text-dimmer': '#bcc0cc',
+  '--accent': '#1e66f5', '--accent-hover': '#2a6ef5', '--hover': '#dce0e8', '--active': '#ccd0da',
+  '--dir-color': '#1e66f5', '--file-color': '#5c5f77',
+  '--tab-bg': '#e6e9ef', '--tab-active-bg': '#eff1f5',
+  '--green': '#40a02b', '--red': '#d20f39', '--yellow': '#df8e1d', '--peach': '#fe640b', '--mauve': '#8839ef', '--pink': '#ea76cb',
+};
+function applyTheme(isLight) {
+  const root = document.documentElement;
+  if (isLight) {
+    for (const [key, val] of Object.entries(THEME_LIGHT)) root.style.setProperty(key, val);
+  } else {
+    for (const key of Object.keys(THEME_LIGHT)) root.style.removeProperty(key);
+  }
+  document.getElementById('themeToggle').textContent = isLight ? '☀️' : '🌙';
+  localStorage.setItem('edlics-theme', isLight ? 'light' : 'dark');
+}
+const savedTheme = localStorage.getItem('edlics-theme');
+if (savedTheme === 'light') applyTheme(true);
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const isLight = !document.documentElement.style.getPropertyValue('--bg');
+  applyTheme(isLight);
+});
 
 // File operations
 function openFile(filePath) {
