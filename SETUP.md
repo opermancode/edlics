@@ -130,6 +130,47 @@ Examples:
 
 ---
 
+## Updating
+
+### If installed via npx
+
+Always runs the latest version automatically. No action needed.
+
+### If installed globally via npm
+
+```bash
+npm update -g edlics
+```
+
+Kill the old server and start again:
+
+```bash
+pkill -f edlics
+edlics serve --hostname 0.0.0.0 --port 5000
+```
+
+### If installed from source (git clone)
+
+```bash
+cd edlics
+git pull
+npm install
+pkill -f edlics
+edlics serve --hostname 0.0.0.0 --port 5000
+```
+
+### If running without symlink (Method 4)
+
+```bash
+cd edlics
+git pull
+npm install
+pkill -f edlics
+node bin/edlics.js serve --hostname 0.0.0.0 --port 5000
+```
+
+---
+
 ## Troubleshooting
 
 | Problem | Solution |
