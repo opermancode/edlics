@@ -51,9 +51,9 @@ No SSH skills required beyond the initial setup. Works on any Linux server.
 npx edlics serve --hostname 0.0.0.0 --port 5000
 ```
 
-Open `http://localhost:5000` in your browser.
-VPN : Open `http://privateIP:5000` in your browser.
-public : Open `http://publicIP:5000` in your browser.
+Locally : Open `http://localhost:5000` in your browser.
+VPN     : Open `http://privateIP:5000` in your browser.
+public  : Open `http://publicIP:5000` in your browser.
 
 > See [SETUP.md](SETUP.md) for all install methods and troubleshooting.
 
