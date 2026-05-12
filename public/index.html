@@ -201,6 +201,7 @@ body {
 <body>
 <div class="toolbar">
   <span class="logo"><span class="logo-mark">Ed</span>Edlics</span>
+  <span id="serverBadge" style="font-size:11px;color:var(--text-dimmer);margin-right:4px;white-space:nowrap;"></span>
   <div class="path-bar" id="pathBar"></div>
   <input class="search-box" id="searchBox" placeholder="Search files..." />
   <button id="btnNewFile" title="New file">+ File</button>
@@ -210,7 +211,10 @@ body {
   <div class="sidebar">
     <div class="sidebar-header">
       <span>Explorer</span>
-      <button id="btnRefresh" title="Refresh">↻</button>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span id="sudoBadge" style="display:none;font-size:10px;color:var(--yellow);font-weight:600;">sudo</span>
+        <button id="btnRefresh" title="Refresh">↻</button>
+      </span>
     </div>
     <div class="file-tree" id="fileTree"></div>
   </div>
@@ -240,6 +244,8 @@ import { EditorView, EditorState, basicSetup, keymap, oneDark, javascript, pytho
 
 const BASE = '';
 const HOME = '/home/ec2-user';
+let serverInfo = null;
+let sudoPassword = null;
 const state = {
   tabs: [], activeTab: null, dirty: new Set(), editorView: null,
 };
@@ -447,9 +453,14 @@ function closeEditor() {
   area.querySelectorAll('textarea').forEach(el => el.remove());
   const welcome = document.getElementById('welcome');
   if (welcome) welcome.classList.remove('hidden');
-  document.getElementById('statusLeft').textContent = '';
-  document.getElementById('statusRight').textContent = '';
   document.getElementById('pathBar').innerHTML = '';
+  if (serverInfo) {
+    document.getElementById('statusLeft').textContent = serverInfo.user + '@' + serverInfo.hostname;
+    document.getElementById('statusRight').textContent = serverInfo.ip;
+  } else {
+    document.getElementById('statusLeft').textContent = '';
+    document.getElementById('statusRight').textContent = '';
+  }
 }
 
 function loadEditor(tab) {
@@ -508,6 +519,11 @@ function updatePathBar(filePath) {
     current += '/' + parts[i];
     const span = document.createElement('span');
     span.textContent = parts[i];
+    if (parts[i] !== basename(filePath)) {
+      span.style.cursor = 'pointer';
+      const dir = current;
+      span.addEventListener('click', function() { renderTree(dir); });
+    }
     el.appendChild(span);
   }
 }
@@ -520,9 +536,67 @@ function updateStatus() {
   document.getElementById('statusRight').textContent = `${lines} lines${state.dirty.has(tab.path) ? ' ● modified' : ''}`;
 }
 
+// Sudo
+let sudoRetryQueue = [];
+
+function showSudoDialog(callback) {
+  const overlay = document.getElementById('dialogOverlay');
+  const content = document.getElementById('dialogContent');
+  content.innerHTML = `
+    <h3>Sudo Required</h3>
+    <p style="color:var(--text-dim);font-size:13px;margin-bottom:16px;">This file requires elevated permissions. Enter your sudo password.</p>
+    <label for="sudoPasswordInput">Password</label>
+    <input id="sudoPasswordInput" type="password" placeholder="sudo password" autofocus />
+    <div class="btn-row">
+      <button class="cancel" onclick="document.getElementById('dialogOverlay').classList.add('hidden')">Cancel</button>
+      <button class="primary" id="btnSudoAuth">Authenticate</button>
+    </div>`;
+  overlay.classList.remove('hidden');
+  document.getElementById('sudoPasswordInput').focus();
+  document.getElementById('btnSudoAuth').onclick = () => {
+    const pw = document.getElementById('sudoPasswordInput').value;
+    if (!pw) return;
+    api('POST', '/api/sudo-auth', { password: pw }).then(data => {
+      if (data.error) { toast(data.error, true); return; }
+      sudoPassword = pw;
+      document.getElementById('sudoBadge').style.display = 'inline';
+      overlay.classList.add('hidden');
+      toast('Sudo authenticated');
+      if (callback) callback();
+    });
+  };
+  document.getElementById('sudoPasswordInput').onkeydown = e => {
+    if (e.key === 'Enter') document.getElementById('btnSudoAuth').click();
+  };
+}
+
+function handleSudoError(filePath, action) {
+  api('GET', '/api/sudo-status').then(status => {
+    if (status.nopasswd) {
+      action();
+    } else if (sudoPassword) {
+      action();
+    } else {
+      showSudoDialog(() => action());
+    }
+  }).catch(() => showSudoDialog(() => action()));
+}
+
 // File operations
 function openFile(filePath) {
   api('GET', `/api/read?path=${encodeURIComponent(filePath)}`).then(data => {
+    if (data.error === 'Permission denied') {
+      return handleSudoError(filePath, () => {
+        api('GET', `/api/read?path=${encodeURIComponent(filePath)}&sudo=1`).then(d2 => {
+          if (d2.error) { toast(d2.error, true); return; }
+          const existing = state.tabs.find(t => t.path === filePath);
+          if (existing) {
+            existing.content = d2.content; existing.savedContent = d2.content;
+            state.dirty.delete(filePath); setActiveTab(existing.id);
+          } else addTab(filePath, d2.content, true);
+        });
+      });
+    }
     if (data.error) { toast(data.error, true); return; }
     const existing = state.tabs.find(t => t.path === filePath);
     if (existing) {
@@ -536,11 +610,18 @@ function saveFile() {
   const tab = state.tabs.find(t => t.id === state.activeTab);
   if (!tab) return;
   const content = tab.content;
-  api('PUT', `/api/write?path=${encodeURIComponent(tab.path)}`, { content }).then(data => {
-    if (data.error) { toast(data.error, true); return; }
-    tab.savedContent = content; state.dirty.delete(tab.path);
-    renderTabs(); toast('Saved ' + basename(tab.path));
-  }).catch(e => toast('Save failed: ' + e.message, true));
+  function doSave(sudo) {
+    const qs = sudo ? `&sudo=1` : '';
+    api('PUT', `/api/write?path=${encodeURIComponent(tab.path)}${qs}`, { content }).then(data => {
+      if (data.error === 'Permission denied' && !sudo) {
+        return handleSudoError(tab.path, () => doSave(true));
+      }
+      if (data.error) { toast(data.error, true); return; }
+      tab.savedContent = content; state.dirty.delete(tab.path);
+      renderTabs(); toast('Saved ' + basename(tab.path));
+    }).catch(e => toast('Save failed: ' + e.message, true));
+  }
+  doSave(false);
 }
 
 function deleteItem(filePath) {
@@ -659,6 +740,23 @@ document.addEventListener('keydown', e => {
 document.getElementById('btnNewFile').onclick = () => showNewFileDialog('file');
 document.getElementById('btnNewDir').onclick = () => showNewFileDialog('directory');
 document.getElementById('btnRefresh').onclick = () => renderTree(currentDir);
+
+api('GET', '/api/info').then(data => {
+  if (data && data.user) {
+    serverInfo = data;
+    document.getElementById('serverBadge').textContent = data.user + '@' + data.hostname;
+    document.getElementById('statusLeft').textContent = data.user + '@' + data.hostname;
+    document.getElementById('statusRight').textContent = data.ip;
+  }
+}).catch(() => {});
+
+api('GET', '/api/sudo-status').then(status => {
+  if (status.nopasswd) {
+    sudoPassword = true;
+    document.getElementById('sudoBadge').style.display = 'inline';
+    document.getElementById('sudoBadge').textContent = 'sudo';
+  }
+}).catch(() => {});
 
 renderTree(HOME);
 </script>
