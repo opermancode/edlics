@@ -74,7 +74,7 @@ Examples:
 
 ## Screenshots
 
-> _(Add a screenshot here once you've launched it)_
+![Edlics Dashboard](brand/Screenshot_dashboard.png)
 
 <br>
 
