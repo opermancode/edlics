@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start"><img src="https://img.shields.io/badge/Quick_Start-blue?style=flat-square" alt="Quick Start"></a>
-  <a href="#install"><img src="https://img.shields.io/badge/Install-green?style=flat-square" alt="Install"></a>
+  <a href="SETUP.md"><img src="https://img.shields.io/badge/Setup_Guide-blue?style=flat-square" alt="Setup Guide"></a>
+  <a href="SETUP.md"><img src="https://img.shields.io/badge/Install-green?style=flat-square" alt="Install"></a>
   <a href="#usage"><img src="https://img.shields.io/badge/Usage-purple?style=flat-square" alt="Usage"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-white?style=flat-square" alt="License"></a>
 </p>
@@ -27,32 +27,7 @@ npx edlics serve --hostname 0.0.0.0 --port 5000
 
 Open `http://localhost:5000` in your browser.
 
-<br>
-
-## Install
-
-### Run on demand (no install)
-
-```bash
-npx edlics serve
-```
-
-### Global install via npm
-
-```bash
-npm install -g edlics
-edlics serve --hostname 0.0.0.0 --port 5000
-```
-
-### From source
-
-```bash
-git clone https://github.com/opermancode/edlics.git
-cd edlics
-npm install
-sudo bash install.sh
-edlics serve --hostname 0.0.0.0 --port 5000
-```
+> See [SETUP.md](SETUP.md) for all install methods and troubleshooting.
 
 <br>
 
@@ -109,6 +84,8 @@ Examples:
 edlics/
 ├── bin/
 │   └── edlics.js          # HTTP server + file API (Node.js)
+├── brand/
+│   └── logo.svg           # Project logo
 ├── bundle/
 │   └── editor.mjs         # CodeMirror 6 build entry point
 ├── public/
@@ -116,6 +93,7 @@ edlics/
 │   └── index.html         # Single-page frontend
 ├── .gitignore
 ├── README.md
+├── SETUP.md               # Detailed setup guide
 ├── install.sh             # Symlinks edlics to /usr/local/bin
 └── package.json           # Dependencies + build scripts
 ```
