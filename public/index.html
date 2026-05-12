@@ -211,6 +211,7 @@ body {
   <span id="serverBadge" style="font-size:11px;color:var(--text-dimmer);margin-right:4px;white-space:nowrap;"></span>
   <span id="themeToggle" title="Toggle theme" style="cursor:pointer;font-size:14px;color:var(--text-dimmer);padding:2px 6px;border-radius:4px;user-select:none;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text-dimmer)'">🌙</span>
   <div class="path-bar" id="pathBar"></div>
+  <span id="searchScope" title="Toggle global search" style="cursor:pointer;font-size:10px;color:var(--text-dimmer);padding:3px 5px;border-radius:3px;border:1px solid var(--border);user-select:none;white-space:nowrap;transition:color 0.15s;" onclick="this.textContent=this.textContent==='All'?'Cur':'All';document.getElementById('searchBox').focus();">Cur</span>
   <input class="search-box" id="searchBox" placeholder="Search files..." />
   <button id="btnNewFile" title="New file">+ File</button>
   <button id="btnNewDir" title="New folder">+ Dir</button>
@@ -745,10 +746,12 @@ document.getElementById('searchBox').addEventListener('input', e => {
   const q = e.target.value.trim();
   if (!q) { renderTree(currentDir); return; }
   searchTimeout = setTimeout(() => {
-    api('GET', `/api/search?path=${encodeURIComponent(currentDir)}&q=${encodeURIComponent(q)}`).then(results => {
+    const scope = document.getElementById('searchScope').textContent === 'All' ? '/' : currentDir;
+    api('GET', `/api/search?path=${encodeURIComponent(scope)}&q=${encodeURIComponent(q)}`).then(results => {
       if (!Array.isArray(results) || results.length === 0) { toast('No results', true); return; }
       const tree = document.getElementById('fileTree');
-      tree.innerHTML = '<div class="tree-item" style="color:var(--text-dim);padding:8px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Search: ' + q + '</div>';
+      const scopeLabel = document.getElementById('searchScope').textContent === 'All' ? 'Global' : 'Current dir';
+      tree.innerHTML = '<div class="tree-item" style="color:var(--text-dim);padding:8px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">' + scopeLabel + ' search: ' + q + '</div>';
       for (const r of results.slice(0, 200)) {
         const div = document.createElement('div');
         div.className = 'tree-item';
