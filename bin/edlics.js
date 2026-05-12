@@ -1,0 +1,245 @@
+#!/usr/bin/env node
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { URL } = require('url');
+
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const MIME = {
+  '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
+  '.css': 'text/css',
+  '.html': 'text/html',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+};
+
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const cmd = args[0];
+  const opts = { hostname: '127.0.0.1', port: 3000 };
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--hostname' && args[i + 1]) opts.hostname = args[++i];
+    if (args[i] === '--port' && args[i + 1]) opts.port = parseInt(args[++i]);
+  }
+  return { cmd, opts };
+}
+
+function serveStatic(res, filePath) {
+  const ext = path.extname(filePath);
+  const contentType = MIME[ext] || 'application/octet-stream';
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404);
+      return res.end('Not found');
+    }
+    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache, no-store, must-revalidate' });
+    res.end(data);
+  });
+}
+
+function json(res, data, status = 200) {
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
+  res.end(JSON.stringify(data));
+}
+
+function error(res, msg, status = 500) {
+  json(res, { error: msg }, status);
+}
+
+function handleAPI(req, res) {
+  const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const parts = u.pathname.split('/').filter(Boolean);
+  const params = Object.fromEntries(u.searchParams);
+
+  function ok(data) { json(res, data); }
+  function fail(msg, code) { error(res, msg, code || 500); }
+
+  try {
+    if (parts[0] === 'api' && parts[1] === 'list' && params.path) {
+      fs.readdir(params.path, { withFileTypes: true }, (err, items) => {
+        if (err) return fail(err.message);
+        const result = [];
+        let pending = items.length;
+        if (pending === 0) return ok(result);
+        for (const item of items) {
+          fs.stat(path.join(params.path, item.name), (err, stat) => {
+            if (!err) {
+              result.push({
+                name: item.name, isDirectory: item.isDirectory(),
+                size: stat.size, mtime: stat.mtimeMs,
+                hidden: item.name.startsWith('.'),
+              });
+            }
+            if (--pending === 0) {
+              result.sort((a, b) => {
+                if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+                return a.name.localeCompare(b.name);
+              });
+              ok(result);
+            }
+          });
+        }
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'read' && params.path) {
+      fs.stat(params.path, (err, stat) => {
+        if (err) return fail(err.message);
+        if (stat.size > 50 * 1024 * 1024) return fail('File too large (>50MB)');
+        fs.readFile(params.path, 'utf-8', (err, content) => {
+          if (err) return fail(err.message);
+          ok({ content, size: stat.size, mtime: stat.mtimeMs });
+        });
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'write') {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        const data = JSON.parse(body);
+        fs.writeFile(params.path, data.content, 'utf-8', err => {
+          if (err) return fail(err.message);
+          ok({ ok: true });
+        });
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'delete' && params.path) {
+      fs.stat(params.path, (err, st) => {
+        if (err) return fail(err.message);
+        const rm = st.isDirectory() ? fs.rm : fs.unlink;
+        rm(params.path, { recursive: true, force: true }, err => {
+          if (err) return fail(err.message);
+          ok({ ok: true });
+        });
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'rename' && params.path) {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        const data = JSON.parse(body);
+        fs.rename(params.path, data.newPath, err => {
+          if (err) return fail(err.message);
+          ok({ ok: true });
+        });
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'create' && params.path) {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        const data = JSON.parse(body);
+        if (data.type === 'directory') {
+          fs.mkdir(params.path, { recursive: true }, err => err ? fail(err.message) : ok({ ok: true }));
+        } else {
+          fs.writeFile(params.path, data.content || '', 'utf-8', err => err ? fail(err.message) : ok({ ok: true }));
+        }
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'stat' && params.path) {
+      fs.stat(params.path, (err, stat) => {
+        if (err) return fail(err.message);
+        ok({ name: path.basename(params.path), isDirectory: stat.isDirectory(), size: stat.size, mtime: stat.mtimeMs });
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'search') {
+      const results = [];
+      function walk(dir, cb) {
+        fs.readdir(dir, { withFileTypes: true }, (err, entries) => {
+          if (err) return cb();
+          let pending = entries.length;
+          if (pending === 0) return cb();
+          for (const e of entries) {
+            if (e.name.startsWith('.')) { if (--pending === 0) cb(); continue; }
+            const full = path.join(dir, e.name);
+            if (full.length > 4096) { if (--pending === 0) cb(); continue; }
+            if (results.length >= 200) { if (--pending === 0) cb(); continue; }
+            if (e.name.toLowerCase().includes((params.q || '').toLowerCase())) results.push(full);
+            if (e.isDirectory()) {
+              walk(full, () => { if (--pending === 0) cb(); });
+            } else {
+              if (--pending === 0) cb();
+            }
+          }
+        });
+      }
+      walk(params.path || '/', () => ok(results));
+      return;
+    }
+
+    fail('Not found', 404);
+  } catch (e) {
+    fail(e.message);
+  }
+}
+
+function router(req, res) {
+  if (req.url.startsWith('/api/')) {
+    return handleAPI(req, res);
+  }
+  let filePath = path.join(PUBLIC_DIR, req.url === '/' ? 'index.html' : req.url);
+  fs.stat(filePath, (err, stat) => {
+    if (!err && stat.isFile()) {
+      serveStatic(res, filePath);
+    } else {
+      serveStatic(res, path.join(PUBLIC_DIR, 'index.html'));
+    }
+  });
+}
+
+function startServer(opts) {
+  const server = http.createServer(router);
+  server.listen(opts.port, opts.hostname, () => {
+    console.log(`\n  Edlics running at:`);
+    console.log(`  Local:   http://${opts.hostname === '0.0.0.0' ? 'localhost' : opts.hostname}:${opts.port}`);
+    if (opts.hostname === '0.0.0.0') {
+      const os = require('os');
+      const ifaces = os.networkInterfaces();
+      for (const name of Object.keys(ifaces)) {
+        for (const iface of ifaces[name]) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            console.log(`  Network: http://${iface.address}:${opts.port}`);
+          }
+        }
+      }
+    }
+    console.log();
+  });
+}
+
+const { cmd, opts } = parseArgs();
+
+if (cmd === 'serve') {
+  startServer(opts);
+} else {
+  console.log(`
+  Edlics - Web File Browser & Editor
+
+  Usage:
+    edlics serve [options]
+
+  Options:
+    --hostname   Host to bind to (default: 127.0.0.1)
+    --port       Port to listen on (default: 3000)
+
+  Examples:
+    edlics serve
+    edlics serve --hostname 0.0.0.0 --port 3000
+  `);
+}
