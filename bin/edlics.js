@@ -3,6 +3,35 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
+const { exec } = require('child_process');
+
+let sudoPassword = null;
+
+function sudoExec(cmd, password, cb) {
+  const pw = password || sudoPassword;
+  const full = pw
+    ? `echo ${JSON.stringify(pw)} | sudo -S ${cmd} 2>/dev/null`
+    : `sudo -n ${cmd} 2>/dev/null`;
+  exec(full, { maxBuffer: 50 * 1024 * 1024 }, cb);
+}
+
+function sudoReadFile(filePath, password, cb) {
+  sudoExec(`cat ${JSON.stringify(filePath)}`, password, (err, stdout) => {
+    if (err) return cb(err);
+    cb(null, stdout);
+  });
+}
+
+function sudoWriteFile(filePath, content, password, cb) {
+  const tmp = `/tmp/edlics_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  fs.writeFile(tmp, content, 'utf-8', err => {
+    if (err) return cb(err);
+    sudoExec(`cp ${JSON.stringify(tmp)} ${JSON.stringify(filePath)}`, password, err => {
+      fs.unlink(tmp, () => {});
+      cb(err);
+    });
+  });
+}
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MIME = {
@@ -91,6 +120,13 @@ function handleAPI(req, res) {
         if (err) return fail(err.message);
         if (stat.size > 50 * 1024 * 1024) return fail('File too large (>50MB)');
         fs.readFile(params.path, 'utf-8', (err, content) => {
+          if (err && err.code === 'EACCES' && (sudoPassword || params.sudo === '1')) {
+            return sudoReadFile(params.path, null, (err2, data) => {
+              if (err2) return fail('Permission denied. Use sudo.');
+              ok({ content: data, size: 0, mtime: 0, sudo: true });
+            });
+          }
+          if (err && err.code === 'EACCES') return fail('Permission denied', 403);
           if (err) return fail(err.message);
           ok({ content, size: stat.size, mtime: stat.mtimeMs });
         });
@@ -104,6 +140,13 @@ function handleAPI(req, res) {
       req.on('end', () => {
         const data = JSON.parse(body);
         fs.writeFile(params.path, data.content, 'utf-8', err => {
+          if (err && err.code === 'EACCES' && (sudoPassword || params.sudo === '1')) {
+            return sudoWriteFile(params.path, data.content, null, err2 => {
+              if (err2) return fail('Permission denied. Use sudo.');
+              ok({ ok: true, sudo: true });
+            });
+          }
+          if (err && err.code === 'EACCES') return fail('Permission denied', 403);
           if (err) return fail(err.message);
           ok({ ok: true });
         });
@@ -155,6 +198,44 @@ function handleAPI(req, res) {
         if (err) return fail(err.message);
         ok({ name: path.basename(params.path), isDirectory: stat.isDirectory(), size: stat.size, mtime: stat.mtimeMs });
       });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'sudo-status') {
+      exec('sudo -n true 2>/dev/null', err => {
+        ok({ nopasswd: !err });
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'sudo-auth') {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        const data = JSON.parse(body);
+        if (!data.password) return fail('Password required');
+        exec(`echo ${JSON.stringify(data.password)} | sudo -S true 2>/dev/null`, err => {
+          if (err) return fail('Wrong password');
+          sudoPassword = data.password;
+          ok({ ok: true });
+        });
+      });
+      return;
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'info') {
+      const os = require('os');
+      const user = process.env.SUDO_USER || process.env.USER || process.env.LOGNAME || 'unknown';
+      let ip = '127.0.0.1';
+      try {
+        const ifaces = os.networkInterfaces();
+        for (const name of Object.keys(ifaces)) {
+          for (const iface of ifaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) { ip = iface.address; break; }
+          }
+        }
+      } catch {}
+      ok({ user, hostname: os.hostname(), ip });
       return;
     }
 
