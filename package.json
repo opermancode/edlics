@@ -7,6 +7,14 @@
   },
   "preferGlobal": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opermancode/edlics.git"
+  },
+  "bugs": {
+    "url": "https://github.com/opermancode/edlics/issues"
+  },
+  "homepage": "https://github.com/opermancode/edlics#readme",
   "scripts": {
     "build": "esbuild bundle/editor.mjs --bundle --format=esm --outfile=public/editor.mjs --target=es2020",
     "postinstall": "npm run build"
