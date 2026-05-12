@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="brand/logo.svg" width="80" height="80" alt="Edlics">
+  <img src="https://raw.githubusercontent.com/opermancode/edlics/main/brand/logo.svg" width="80" height="80" alt="Edlics">
 </p>
 
 <h1 align="center">Edlics</h1>
@@ -47,7 +47,7 @@ edlics serve --hostname 0.0.0.0 --port 5000
 ### From source
 
 ```bash
-git clone https://github.com/your-username/edlics.git
+git clone https://github.com/opermancode/edlics.git
 cd edlics
 npm install
 sudo bash install.sh
